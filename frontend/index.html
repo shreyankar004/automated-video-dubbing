@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DubFlow — English dubbing pipeline</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-border: #232734;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --accent-dim: #2c3a5e;
+    --ok: #34d399;
+    --err: #f87171;
+    --radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 28px; border-bottom: 1px solid var(--panel-border);
+  }
+  header .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+  header .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  header .env { font-size: 12px; color: var(--muted); border: 1px solid var(--panel-border); padding: 3px 8px; border-radius: 6px; }
+
+  main { max-width: 880px; margin: 0 auto; padding: 48px 20px 80px; }
+  .hero h1 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .hero p { color: var(--muted); margin: 0 0 28px; font-size: 15px; max-width: 560px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 18px;
+  }
+  .url-row { display: flex; gap: 10px; }
+  input[type=text] {
+    flex: 1; background: #0e1117; border: 1px solid var(--panel-border); color: var(--text);
+    padding: 12px 14px; border-radius: 8px; font-size: 14px; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: white; border: none; padding: 12px 18px;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { background: var(--accent-dim); cursor: not-allowed; }
+  button.secondary { background: transparent; border: 1px solid var(--panel-border); color: var(--text); }
+
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .error-box { color: var(--err); font-size: 13px; margin-top: 10px; display: none; }
+
+  .meta-row { display: flex; gap: 24px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .meta-row b { color: var(--text); }
+
+  .stages { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 14px 0; }
+  .stage {
+    padding: 10px 8px; text-align: center; font-size: 11px; border-radius: 8px;
+    background: #0e1117; border: 1px solid var(--panel-border); color: var(--muted);
+  }
+  .stage.active { border-color: var(--accent); color: var(--text); background: #101a30; }
+  .stage.done { border-color: var(--ok); color: var(--ok); }
+
+  .progress-track { height: 8px; background: #0e1117; border-radius: 6px; overflow: hidden; margin-top: 10px; }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .3s ease; }
+
+  .status-line { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .status-line.err { color: var(--err); }
+
+  video { width: 100%; border-radius: 8px; margin-top: 12px; background: black; }
+
+  .transcript { max-height: 220px; overflow-y: auto; font-size: 13px; margin-top: 8px; }
+  .seg { padding: 8px 0; border-bottom: 1px solid var(--panel-border); }
+  .seg .time { color: var(--muted); font-size: 11px; }
+  .seg .orig { color: var(--muted); }
+  .seg .trans { color: var(--text); }
+
+  .hidden { display: none; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="dot"></span> DubFlow</div>
+    <div class="env" id="healthBadge">checking backend…</div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Turn any spoken video into natural English.</h1>
+      <p>Paste a YouTube URL and let the pipeline handle transcription, translation, speech synthesis and rendering.</p>
+    </div>
+
+    <div class="card">
+      <div class="url-row">
+        <input id="urlInput" type="text" placeholder="https://www.youtube.com/watch?v=..." />
+        <button id="startBtn">Start dubbing</button>
+      </div>
+      <div class="hint">Works with German, French, Hindi, Bengali, Spanish and other spoken languages — the source language is detected automatically.</div>
+      <div class="error-box" id="urlError"></div>
+    </div>
+
+    <div class="card hidden" id="jobCard">
+      <div class="meta-row">
+        <div>Detected language: <b id="metaLang">—</b></div>
+        <div>Source duration: <b id="metaDuration">—</b></div>
+        <div>Job: <b id="metaJobId">—</b></div>
+      </div>
+
+      <div class="stages" id="stages">
+        <div class="stage" data-stage="downloading">Download</div>
+        <div class="stage" data-stage="extracting_audio">Extract</div>
+        <div class="stage" data-stage="transcribing">Transcribe</div>
+        <div class="stage" data-stage="translating">Translate</div>
+        <div class="stage" data-stage="synthesizing">Synthesize</div>
+        <div class="stage" data-stage="rendering">Render</div>
+      </div>
+
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="status-line" id="statusLine">Waiting…</div>
+
+      <div id="resultBlock" class="hidden">
+        <video id="resultVideo" controls></video>
+        <div class="url-row" style="margin-top:12px;">
+          <button id="downloadBtn">Download MP4</button>
+          <button class="secondary" id="resetBtn">New project</button>
+        </div>
+      </div>
+
+      <div id="transcriptBlock" class="hidden">
+        <h4 style="margin-bottom:4px;font-size:13px;color:var(--muted);">Transcript preview</h4>
+        <div class="transcript" id="transcriptList"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>DubFlow · local automated dubbing pipeline</footer>
+
+<script>
+const API = "/api";
+const urlInput = document.getElementById("urlInput");
+const startBtn = document.getElementById("startBtn");
+const urlError = document.getElementById("urlError");
+const jobCard = document.getElementById("jobCard");
+const stagesEl = document.getElementById("stages");
+const progressFill = document.getElementById("progressFill");
+const statusLine = document.getElementById("statusLine");
+const resultBlock = document.getElementById("resultBlock");
+const resultVideo = document.getElementById("resultVideo");
+const downloadBtn = document.getElementById("downloadBtn");
+const resetBtn = document.getElementById("resetBtn");
+const transcriptBlock = document.getElementById("transcriptBlock");
+const transcriptList = document.getElementById("transcriptList");
+const metaLang = document.getElementById("metaLang");
+const metaDuration = document.getElementById("metaDuration");
+const metaJobId = document.getElementById("metaJobId");
+const healthBadge = document.getElementById("healthBadge");
+
+let currentJobId = null;
+
+function isLikelyYouTubeUrl(value) {
+  try {
+    const u = new URL(value.trim());
+    return /(^|\.)youtube\.com$/.test(u.hostname) || u.hostname === "youtu.be";
+  } catch { return false; }
+}
+
+async function checkHealth() {
+  try {
+    const res = await fetch(`${API}/health`);
+    const data = await res.json();
+    healthBadge.textContent = `backend ok · whisper:${data.whisper_model}`;
+  } catch {
+    healthBadge.textContent = "backend unreachable";
+  }
+}
+checkHealth();
+
+function setStage(stage) {
+  [...stagesEl.children].forEach(el => {
+    const order = [...stagesEl.children].map(c => c.dataset.stage);
+    const idx = order.indexOf(stage);
+    const elIdx = order.indexOf(el.dataset.stage);
+    el.classList.remove("active", "done");
+    if (elIdx < idx) el.classList.add("done");
+    else if (elIdx === idx) el.classList.add("active");
+  });
+}
+
+async function startJob() {
+  const url = urlInput.value.trim();
+  urlError.style.display = "none";
+  if (!isLikelyYouTubeUrl(url)) {
+    urlError.textContent = "Please enter a valid YouTube video URL.";
+    urlError.style.display = "block";
+    return;
+  }
+  startBtn.disabled = true;
+  try {
+    const res = await fetch(`${API}/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Could not start job");
+    }
+    const data = await res.json();
+    currentJobId = data.job_id;
+    metaJobId.textContent = currentJobId;
+    jobCard.classList.remove("hidden");
+    resultBlock.classList.add("hidden");
+    transcriptBlock.classList.add("hidden");
+    statusLine.classList.remove("err");
+    watchJob(currentJobId);
+  } catch (e) {
+    urlError.textContent = e.message;
+    urlError.style.display = "block";
+  } finally {
+    startBtn.disabled = false;
+  }
+}
+
+function watchJob(jobId) {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/api/ws/jobs/${jobId}`);
+
+  ws.onmessage = (event) => {
+    const payload = JSON.parse(event.data);
+    applyStatus(payload);
+    if (payload.stage === "completed") { ws.close(); onCompleted(jobId); }
+    if (payload.stage === "failed") { ws.close(); onFailed(payload); }
+  };
+  ws.onerror = () => pollJob(jobId);
+}
+
+async function pollJob(jobId) {
+  const timer = setInterval(async () => {
+    const res = await fetch(`${API}/jobs/${jobId}`);
+    const data = await res.json();
+    applyStatus(data);
+    if (data.stage === "completed") { clearInterval(timer); onCompleted(jobId); }
+    if (data.stage === "failed") { clearInterval(timer); onFailed(data); }
+  }, 1500);
+}
+
+function applyStatus(data) {
+  if (data.stage) setStage(data.stage);
+  if (typeof data.progress === "number") progressFill.style.width = `${data.progress}%`;
+  statusLine.textContent = data.message || data.stage;
+  if (data.source_language) metaLang.textContent = data.source_language;
+  if (data.source_duration) metaDuration.textContent = formatDuration(data.source_duration);
+}
+
+function onFailed(data) {
+  statusLine.textContent = data.error || "Processing failed.";
+  statusLine.classList.add("err");
+}
+
+async function onCompleted(jobId) {
+  statusLine.textContent = "Dubbing complete";
+  resultVideo.src = `${API}/jobs/${jobId}/download`;
+  resultBlock.classList.remove("hidden");
+  downloadBtn.onclick = () => window.open(`${API}/jobs/${jobId}/download`, "_blank");
+
+  const res = await fetch(`${API}/jobs/${jobId}/transcript`);
+  const data = await res.json();
+  if (data.segments && data.segments.length) {
+    transcriptList.innerHTML = data.segments.map(s => `
+      <div class="seg">
+        <div class="time">${formatDuration(s.start)} – ${formatDuration(s.end)}</div>
+        <div class="orig">${escapeHtml(s.text)}</div>
+        <div class="trans">${escapeHtml(s.translated_text || "")}</div>
+      </div>`).join("");
+    transcriptBlock.classList.remove("hidden");
+  }
+}
+
+function formatDuration(seconds) {
+  seconds = Math.round(seconds);
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+startBtn.addEventListener("click", startJob);
+urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") startJob(); });
+resetBtn.addEventListener("click", () => {
+  jobCard.classList.add("hidden");
+  urlInput.value = "";
+  currentJobId = null;
+});
+</script>
+</body>
+</html>

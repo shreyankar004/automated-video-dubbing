@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+
+# YouTube cookies (sensitive — never commit or share)
+cookies.txt
+
+# Data / generated media
+data/downloads/*
+data/audio/*
+data/jobs/*
+data/output/*
+!data/downloads/.gitkeep
+!data/audio/.gitkeep
+!data/jobs/.gitkeep
+!data/output/.gitkeep
+
+# Model caches
+.cache/
+*.pt
+*.bin
+
+# OS
+.DS_Store
+
+backend/data/
+
